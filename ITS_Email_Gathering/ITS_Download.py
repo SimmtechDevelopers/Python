@@ -157,7 +157,7 @@ def save_results_to_memory(grouped_result, process_codes):
         process_code = process_codes.pop(0) if process_codes else "Unknown"
 
         # 파일 경로 생성
-        file_name = f"{lot_number_trimmed}.txt"
+        file_name = f"{management_code}_{lot_number_trimmed}.ski"
         file_path = os.path.join(os.getcwd(), file_name)
         file_paths.append(file_path)
 
@@ -173,7 +173,7 @@ def save_results_to_memory(grouped_result, process_codes):
                 strip_id = strip['StripID'].strip()  # StripID에서 앞 12자리를 가져옴 (LotNumber 부분)
                 pcs_col = strip['PCSCol']
                 pcs_row = strip['PCSRow']
-                file_content.write(f"{strip_id} {pcs_col},{pcs_row}\n")
+                file_content.write(f"{strip_id},{pcs_col},{pcs_row}\n")
 
             file_content.write("EOL")
 
