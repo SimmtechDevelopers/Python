@@ -2,7 +2,7 @@ import time
 import win32com.client
 from ITS_Gathering import get_data_from_emails, query_data_from_sql, send_email_with_query_result
 from ITS_Upload import load_config, process_emails
-from ITS_Download import get_data_from_emails as get_download_data, query_data_from_sql as query_download_data, save_results_to_memory, send_email_with_attachment
+from ITS_Download_2 import get_data_from_emails as get_download_data, query_data_from_sql as query_download_data, save_results_to_memory, send_email_with_attachment
 
 # Outlook 초기화
 outlook = win32com.client.Dispatch("Outlook.Application")
@@ -40,18 +40,16 @@ def run_periodically(outlook, interval_seconds=60):
 
                 elif "[ITS_Download]" in (message.Subject or ""):
 
-                    results, senders, cc_list, process_codes, original_messages = get_download_data(outlook,
+                    results, senders, cc_list, original_messages = get_download_data(outlook,
                                                                                                     "[ITS_Download]")
-                    for result, sender_email, cc_email, process_code, original_message in zip(results, senders, cc_list,
-                                                                                              process_codes,
-                                                                                              original_messages):
-                        if not result or not sender_email or not process_code:
-                            print("데이터, 발신자 이메일 또는 ProcessCode가 없습니다. 건너뜁니다.")
+                    for result, sender_email, cc_email, original_message in zip(results, senders, cc_list,original_messages):
+                        if not result or not sender_email:
+                            print("데이터, 발신자 이메일  없습니다. 건너뜁니다.")
                             continue
 
-                        grouped_result = query_download_data(result, process_code)
+                        grouped_result = query_download_data(result)
 
-                        file_path = save_results_to_memory(grouped_result,process_codes)
+                        file_path = save_results_to_memory(grouped_result)
                         send_email_with_attachment(original_message, file_path, sender_email, cc_email)
         except Exception as e:
             print(f"전체 처리 중 오류 발생: {str(e)}")

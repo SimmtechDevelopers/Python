@@ -14,7 +14,6 @@ def get_data_from_emails(outlook, target_subject_prefix):
     results = []
     senders = []
     cc_list = []
-    process_codes = []
     original_messages = []
 
     for message in messages:
@@ -27,9 +26,6 @@ def get_data_from_emails(outlook, target_subject_prefix):
                 print(f"메일 수신 시간 (로컬 시간): {received_time}")
                 body = message.Body
 
-                # 정규 표현식에서 백슬래시를 올바르게 이스케이프
-                body_match = re.search(r'ProcessCode\s*:\s*(\d+)', body)
-                process_code = body_match.group(1) if body_match else "140"
 
                 # [Lot]와 [End] 사이의 내용 추출
                 match = re.search(r'\[Lot\](.*?)\[End\]', body, re.DOTALL)
@@ -51,7 +47,6 @@ def get_data_from_emails(outlook, target_subject_prefix):
                         results.append(valid_data)
                         senders.append(message.SenderEmailAddress)
                         cc_list.append(message.CC)
-                        process_codes.append(process_code)
                         original_messages.append(message)
 
                 message.UnRead = False
@@ -61,10 +56,10 @@ def get_data_from_emails(outlook, target_subject_prefix):
             message.UnRead = False
             continue
 
-    return results, senders, cc_list, process_codes, original_messages
+    return results, senders, cc_list, original_messages
 
 
-def query_data_from_sql(data, process_code):
+def query_data_from_sql(data):
     # SQL Server 연결 정보 설정
     server = '10.101.1.190'
     database = 'ITS'
@@ -89,10 +84,15 @@ def query_data_from_sql(data, process_code):
         columns = [column[0] for column in cursor.description]
         return [dict(zip(columns, row)) for row in rows]
 
-    # 첫 번째 쿼리 실행
+    # Lot별로 데이터 처리
     for lot_value in lot_values:
         lot_value_trimmed = lot_value[:12].strip()  # '-A' 또는 '-00'을 제거하고, 첫 12자리만 추출 후 공백 제거
 
+        # Lot 정보 초기화
+        if lot_value_trimmed not in grouped_result:
+            grouped_result[lot_value_trimmed] = {"lot_info": [], "strip_info": [], "process_codes": []}
+
+        # 첫 번째 쿼리 실행
         query = f"""
             SELECT lm.LotNumber, lm.*
             FROM dbo.pts_LotMaster lm
@@ -103,19 +103,13 @@ def query_data_from_sql(data, process_code):
         rows = rows_to_dict(cursor, rows)
         for row in rows:
             lot_number_trimmed_from_db = row['LotNumber'].strip()  # DB에서 가져온 LotNumber에서 공백 제거
-            if lot_number_trimmed_from_db not in grouped_result:
-                grouped_result[lot_number_trimmed_from_db] = {"lot_info": [], "strip_info": []}
-            grouped_result[lot_number_trimmed_from_db]["lot_info"].append(row)
+            grouped_result[lot_value_trimmed]["lot_info"].append(row)
 
-    # 두 번째 쿼리 실행
-    for lot_value in lot_values:
-        lot_value_trimmed = lot_value[:12].strip()  # '-A' 또는 '-00'을 제거하고, 첫 12자리만 추출 후 공백 제거
-
+        # 두 번째 쿼리 실행
         query_2 = f"""
             SELECT s.StripID, s.PCSCol, s.PCSRow
             FROM dbo.pts_StripBCL2 s
-            WHERE s.ProcessCode = {process_code}
-                AND s.StripID LIKE SUBSTRING('{lot_value_trimmed}', 1, 12) + '%'
+            WHERE  s.StripID LIKE SUBSTRING('{lot_value_trimmed}', 1, 12) + '%'
             GROUP BY s.StripID, s.PCSCol, s.PCSRow
             ORDER BY s.StripID, s.PCSCol, s.PCSRow
         """
@@ -124,26 +118,41 @@ def query_data_from_sql(data, process_code):
         rows = rows_to_dict(cursor, rows)
         if rows:
             for row in rows:
-                lot_number_trimmed_from_db = row['StripID'][:12].strip()  # DB에서 가져온 StripID에서 LotNumber 추출 후 공백 제거
-                # 12자리만 비교
-                for grouped_lot_number in grouped_result.keys():
-                    if lot_number_trimmed_from_db == grouped_lot_number[:12]:
-                        grouped_result[grouped_lot_number]["strip_info"].append(row)
+                grouped_result[lot_value_trimmed]["strip_info"].append(row)
         else:
-            print(f"LotNumber {lot_value_trimmed}에 대한 strip 정보가 없습니다.")    # 커넥션 종료
+            print(f"LotNumber {lot_value_trimmed}에 대한 strip 정보가 없습니다.")
+
+        # 세 번째 쿼리 실행 (ProcessCode 추출)
+        query_3 = f"""
+            SELECT h.ProcessCode
+            FROM dbo.pts_StripHistory h
+            WHERE h.LotNumber = SUBSTRING('{lot_value_trimmed}', 1, 12) + '-00'
+            GROUP BY h.ProcessCode
+        """
+        cursor.execute(query_3)
+        rows = cursor.fetchall()
+        for row in rows:
+            grouped_result[lot_value_trimmed]["process_codes"].append(row[0])  # ProcessCode 값 추가
+
+
+    # 커넥션 종료
     cursor.close()
     connection.close()
 
     return grouped_result
 
 
-def save_results_to_memory(grouped_result, process_codes):
+
+
+def save_results_to_memory(grouped_result):
+
     # 각 LotNumber에 대해 개별 파일 생성
     file_paths = []
 
     for lot_number, result in grouped_result.items():
         lot_info = result["lot_info"]
         strip_info = result["strip_info"]
+        process_codes = result["process_codes"]  # Lot별 ProcessCode 가져오기
 
         # Lot 정보가 존재하는 경우 처리
         if lot_info:
@@ -152,9 +161,6 @@ def save_results_to_memory(grouped_result, process_codes):
             lot_number_trimmed = lot_record['LotNumber'].strip()  # 뒤의 공백 제거
         else:
             continue  # Lot 정보가 없다면 건너뛰기
-
-        # 해당 Lot의 Process Code 가져오기
-        process_code = process_codes.pop(0) if process_codes else "Unknown"
 
         # 파일 경로 생성
         file_name = f"{management_code}_{lot_number_trimmed}.ski"
@@ -165,7 +171,7 @@ def save_results_to_memory(grouped_result, process_codes):
         with open(file_path, 'w', encoding='utf-8') as file_content:
             file_content.write(f"Management Code : {management_code}\n")
             file_content.write(f"Lot Number : {lot_number_trimmed}\n")
-            file_content.write(f"Process Code : {process_code}\n")
+            file_content.write(f"Process Code : {','.join(map(lambda x: x.strip(), sorted(process_codes, reverse=True)))}\n")  # Process Codes 추가
             file_content.write(f"Total Count : {len(strip_info)}\n")
             file_content.write("\n")
 
@@ -178,6 +184,9 @@ def save_results_to_memory(grouped_result, process_codes):
             file_content.write("EOL")
 
     return file_paths
+
+
+
 
 
 def send_email_with_attachment(original_message, file_paths, to_email, cc_email=None):
