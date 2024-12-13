@@ -2,7 +2,7 @@ import time
 import win32com.client
 from ITS_Gathering import get_data_from_emails, query_data_from_sql, send_email_with_query_result
 from ITS_Upload import load_config, process_emails
-from ITS_Download_2 import get_data_from_emails as get_download_data, query_data_from_sql as query_download_data, save_results_to_memory, send_email_with_attachment
+from ITS_Download import get_data_from_emails as get_download_data, query_data_from_sql as query_download_data, save_results_to_memory, send_email_with_attachment
 
 # Outlook 초기화
 outlook = win32com.client.Dispatch("Outlook.Application")
