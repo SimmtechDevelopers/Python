@@ -1,0 +1,8 @@
+{
+    "au_areas": {"org": 101, "dept_type": 0},
+    "au_areas_xian": {"org": 161, "dept_type": 0},
+    "au_areas_penang": {"org": 221, "dept_type": 0},
+    "enig_areas": {"org": 101, "dept_type": 3},
+    "enig_areas_xian": {"org": 161, "dept_type": 3},
+    "enig_areas_penang": {"org": 221, "dept_type": 3}
+}
